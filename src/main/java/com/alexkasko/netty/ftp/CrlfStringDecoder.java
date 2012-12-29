@@ -19,11 +19,12 @@ public class CrlfStringDecoder extends FrameDecoder {
     private final Charset encoding;
 
     public CrlfStringDecoder() {
-        this.maxRequestLengthBytes = 1 << 8;
-        this.encoding = Charset.forName("UTF-8");
+        this(1<< 8, "UTF-8");
     }
 
     public CrlfStringDecoder(int maxRequestLengthBytes, String encoding) {
+        if(maxRequestLengthBytes <= 0) throw new IllegalArgumentException(
+                "Provided maxRequestLengthBytes: [" + maxRequestLengthBytes +"] must be positive");
         this.maxRequestLengthBytes = maxRequestLengthBytes;
         this.encoding = Charset.forName(encoding);
     }
@@ -53,7 +54,4 @@ public class CrlfStringDecoder extends FrameDecoder {
             }
         }
     }
-
-
-
 }
