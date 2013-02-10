@@ -37,6 +37,10 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         this(receiver, new byte[]{127, 0, 0, 1}, 2121, 4242, 10);
     }
 
+    public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
+        this(receiver, passiveAddress.getAddress(), lowestPassivePort, highestPassivePort, passiveOpenAttempts);
+    }
+
     public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
         if(null == receiver) throw new IllegalArgumentException("Provided receiver is null");
         this.receiver = receiver;
