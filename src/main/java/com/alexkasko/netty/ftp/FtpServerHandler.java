@@ -12,7 +12,10 @@ import static java.lang.System.currentTimeMillis;
 import static org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer;
 
 /**
- * User: alexkasko
+ * Netty handler, partial implementation of <a href="http://tools.ietf.org/html/rfc959">RFC 959 "File Transfer Protocol (FTP)"</a>
+ * for receiving FTP files. Both active and passive modes are supported.
+ *
+ * @author alexkasko
  * Date: 12/27/12
  */
 public class FtpServerHandler extends SimpleChannelUpstreamHandler {
@@ -33,14 +36,37 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     private Socket activeSocket = null;
     private ServerSocket passiveSocket = null;
 
+    /**
+     * Constructor for FTP active mode
+     *
+     * @param receiver data receiver implementation
+     */
     public FtpServerHandler(DataReceiver receiver) {
         this(receiver, new byte[]{127, 0, 0, 1}, 2121, 4242, 10);
     }
 
+    /**
+     * Constructor for FTP passive mode
+     *
+     * @param receiver data receiver implementation
+     * @param passiveAddress passive IP address
+     * @param lowestPassivePort lowest bound of passive ports range
+     * @param highestPassivePort highest bound of passive ports range
+     * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
+     */
     public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
         this(receiver, passiveAddress.getAddress(), lowestPassivePort, highestPassivePort, passiveOpenAttempts);
     }
 
+    /**
+     * Constructor for FTP passive mode
+     *
+     * @param receiver data receiver implementation
+     * @param passiveAddress passive IP address
+     * @param lowestPassivePort lowest bound of passive ports range
+     * @param highestPassivePort highest bound of passive ports range
+     * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
+     */
     public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
         if(null == receiver) throw new IllegalArgumentException("Provided receiver is null");
         this.receiver = receiver;
@@ -60,7 +86,9 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         this.passiveOpenAttempts = passiveOpenAttempts;
     }
 
-    // see http://tools.ietf.org/html/rfc959
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
         String message = ((String) e.getMessage()).trim();
@@ -87,23 +115,41 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         lastCommand = cmd;
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
         e.getCause().printStackTrace();
         send("500 Unspecified error", ctx, e.getCause().getMessage(), "");
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
         send("220 Service ready", ctx, "[connected]", "");
     }
 
+    /**
+     * TYPE command handler
+     *
+     * @param ctx handler context
+     * @param args command arguments
+     */
     protected void type(ChannelHandlerContext ctx, String args) {
         if ("I".equals(args)) send("200 Type set to IMAGE NONPRINT", ctx, "TYPE", args);
         else if ("A".equals(args)) send("200 Type set to ASCII NONPRINT", ctx, "TYPE", args);
         else send("504 Command not implemented for that parameter", ctx, "TYPE", args);
     }
 
+    /**
+     * PORT command handler
+     *
+     * @param ctx handler context
+     * @param args command arguments
+     */
     protected void port(ChannelHandlerContext ctx, String args) {
         InetSocketAddress addr = parsePortArgs(args);
         if (null == addr) send("501 Syntax error in parameters or arguments", ctx, "PORT", args);
@@ -118,6 +164,13 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         }
     }
 
+    /**
+     * PASV command handler
+     *
+     * @param ctx handler context
+     * @param args command arguments
+     * @throws InterruptedException
+     */
     protected void pasv(ChannelHandlerContext ctx, String args) throws InterruptedException {
         for(int i=0; i< passiveOpenAttempts; i++) {
             int port = choosePassivePort(lowestPassivePort, highestPassivePort);
@@ -138,7 +191,13 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         if(null == this.passiveSocket) send("551 Requested action aborted", ctx, "PASV", args);
     }
 
-    protected void list(ChannelHandlerContext ctx, String args) throws InterruptedException {
+    /**
+     * LIST command handler
+     *
+     * @param ctx handler context
+     * @param args command arguments
+     */
+    protected void list(ChannelHandlerContext ctx, String args) {
         if ("PORT".equals(lastCommand)) {
             send("150 Opening binary mode data connection for LIST " + args, ctx, "LIST", args);
             try {
@@ -166,6 +225,12 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         } else send("503 Bad sequence of commands", ctx, "LIST", args);
     }
 
+    /**
+     * STOP command handler
+     *
+     * @param ctx handler context
+     * @param args command arguments
+     */
     protected void stor(ChannelHandlerContext ctx, String args) {
         if ("PORT".equals(lastCommand)) {
             send("150 Opening binary mode data connection for " + args, ctx, "", args);

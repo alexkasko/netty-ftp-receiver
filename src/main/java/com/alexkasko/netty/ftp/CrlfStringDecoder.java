@@ -8,7 +8,10 @@ import org.jboss.netty.handler.codec.frame.FrameDecoder;
 import java.nio.charset.Charset;
 
 /**
- * User: alexkasko
+ * {@link FrameDecoder} implementation, that accumulates input strings until {@code \r\n}
+ * and sends accumulated string upstream.
+ *
+ * @author alexkasko
  * Date: 12/28/12
  */
 public class CrlfStringDecoder extends FrameDecoder {
@@ -18,10 +21,19 @@ public class CrlfStringDecoder extends FrameDecoder {
     private final int maxRequestLengthBytes;
     private final Charset encoding;
 
+    /**
+     * Constructor, uses {@code 256} max string length and {@code UTF-8} encoding
+     */
     public CrlfStringDecoder() {
         this(1<< 8, "UTF-8");
     }
 
+    /**
+     * Constructor
+     *
+     * @param maxRequestLengthBytes max length of accumulated string in bytes
+     * @param encoding string encoding to use before sending it upstream
+     */
     public CrlfStringDecoder(int maxRequestLengthBytes, String encoding) {
         if(maxRequestLengthBytes <= 0) throw new IllegalArgumentException(
                 "Provided maxRequestLengthBytes: [" + maxRequestLengthBytes +"] must be positive");
@@ -29,6 +41,9 @@ public class CrlfStringDecoder extends FrameDecoder {
         this.encoding = Charset.forName(encoding);
     }
 
+    /**
+     * {@inheritDoc}
+     */
     @Override
     protected Object decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer cb) throws Exception {
         byte[] data = new byte[maxRequestLengthBytes];

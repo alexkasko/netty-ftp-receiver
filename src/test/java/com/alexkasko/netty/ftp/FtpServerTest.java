@@ -34,6 +34,7 @@ public class FtpServerTest {
         bootstrap.setPipelineFactory(new PipelineFactory());
         bootstrap.bind(new InetSocketAddress(2121));
         FTPClient client = new FTPClient();
+//        https://issues.apache.org/jira/browse/NET-493
         client.setBufferSize(0);
         client.connect("127.0.0.1", 2121);
         // active
