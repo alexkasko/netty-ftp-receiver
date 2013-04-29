@@ -120,7 +120,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      */
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
-        e.getCause().printStackTrace();
+        logger.error("Exception caught in FtpServerHandler", e.getCause());
         send("500 Unspecified error", ctx, e.getCause().getMessage(), "");
     }
 
@@ -152,6 +152,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      */
     protected void port(ChannelHandlerContext ctx, String args) {
         InetSocketAddress addr = parsePortArgs(args);
+        if (logger.isTraceEnabled()) logger.trace(String.valueOf(addr));
         if (null == addr) send("501 Syntax error in parameters or arguments", ctx, "PORT", args);
         else if (null != this.activeSocket && !activeSocket.isClosed()) send("503 Bad sequence of commands", ctx, "PORT", args);
         else {
@@ -159,6 +160,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 this.activeSocket = new Socket(addr.getAddress(), addr.getPort());
                 send("200 PORT command successful", ctx, "PORT", args);
             } catch (IOException e1) {
+                logger.warn("Exception thrown on opening client socket to address: [" + addr + "]", e1);
                 send("552 Requested file action aborted", ctx, "PORT", args);
             }
         }
@@ -172,18 +174,20 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @throws InterruptedException
      */
     protected void pasv(ChannelHandlerContext ctx, String args) throws InterruptedException {
-        for(int i=0; i< passiveOpenAttempts; i++) {
+        for (int i = 0; i < passiveOpenAttempts; i++) {
             int port = choosePassivePort(lowestPassivePort, highestPassivePort);
             int part1 = (byte) (port >> 8) & 0xff;
             int part2 = (byte) (port >> 0) & 0xff;
+            InetAddress addr = null;
             try {
-                InetAddress addr = InetAddress.getByAddress(passiveAddress);
+                addr = InetAddress.getByAddress(passiveAddress);
                 this.passiveSocket = new ServerSocket(port, 50, addr);
                 send(String.format("227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)",
                         passiveAddress[0], passiveAddress[1], passiveAddress[2], passiveAddress[3], part1, part2), ctx, "PASV", args);
                 break;
             } catch (IOException e1) {
-                logger.warn("Fail binding on port: " + port);
+                logger.warn("Exception thrown on binding server socket to address: [" + addr + "], port: [" + port + "], " +
+                        "attempt: [" + i + 1 + "] of: [" + passiveOpenAttempts + "]", e1);
                 // ensure port change
                 Thread.sleep(1);
             }
@@ -204,6 +208,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 activeSocket.getOutputStream().write(CRLF);
                 send("226 Transfer complete for LIST", ctx, "", args);
             } catch (IOException e1) {
+                logger.warn("Exception thrown on writing to client socket: [" + activeSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "LIST", args);
             } finally {
                 closeQuetly(activeSocket);
@@ -211,12 +216,15 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             }
         } else if ("PASV".equals(lastCommand)) {
             send("150 Opening binary mode data connection for LIST on port: " + passiveSocket.getLocalPort(), ctx, "LIST", args);
+            Socket clientSocket = null;
             try {
-                Socket clientSocket = passiveSocket.accept();
+                clientSocket = passiveSocket.accept();
                 clientSocket.getOutputStream().write(CRLF);
                 clientSocket.getOutputStream().close();
                 send("226 Transfer complete for LIST", ctx, "", args);
             } catch (IOException e1) {
+                logger.warn("Exception thrown on writing from server socket: [" + passiveSocket + "]," +
+                        "accepted client socket: [" + clientSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "LIST", args);
             } finally {
                 closeQuetly(passiveSocket);
@@ -238,6 +246,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 receiver.receive(args, activeSocket.getInputStream());
                 send("226 Transfer complete for STOR " + args, ctx, "", args);
             } catch (IOException e1) {
+                logger.warn("Exception thrown on reading from client socket: [" + activeSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "STOR", args);
             } finally {
                 closeQuetly(activeSocket);
@@ -245,11 +254,14 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             }
         } else if ("PASV".equals(lastCommand)) {
             send("150 Opening binary mode data connection for " + args, ctx, "STOR", args);
+            Socket clientSocket = null;
             try {
-                Socket clientSocket = passiveSocket.accept();
+                clientSocket = passiveSocket.accept();
                 receiver.receive(args, clientSocket.getInputStream());
                 send("226 Transfer complete for STOR " + args, ctx, "", args);
             } catch (IOException e1) {
+                logger.warn("Exception thrown on reading from server socket: [" + passiveSocket + "], " +
+                        "accepted client socket: [" + clientSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "STOR", args);
             } finally {
                 closeQuetly(passiveSocket);
@@ -259,8 +271,10 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     }
 
     private static void send(String response, ChannelHandlerContext ctx, String command, String args) {
-        if(command.length() > 0) logger.debug("-> " + command + " " + args);
-        logger.debug("<- " + response);
+        if(logger.isDebugEnabled()) {
+            if(command.length() > 0) logger.debug("-> " + command + " " + args);
+            logger.debug("<- " + response);
+        }
         String line = response + "\r\n";
         byte[] data = line.getBytes(ASCII);
         ctx.getChannel().write(wrappedBuffer(data));
@@ -291,18 +305,20 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     }
 
     private static void closeQuetly(Socket socket) {
+        if(null == socket) return;
         try {
             socket.close();
-        } catch (IOException e) {
-            // ignore
+        } catch (Exception e) {
+            logger.warn("Exception thrown on closing client socket", e);
         }
     }
 
     private static void closeQuetly(ServerSocket socket) {
+        if(null == socket) return;
         try {
             socket.close();
-        } catch (IOException e) {
-            // ignore
+        } catch (Exception e) {
+            logger.warn("Exception thrown on closing server socket", e);
         }
     }
 }
