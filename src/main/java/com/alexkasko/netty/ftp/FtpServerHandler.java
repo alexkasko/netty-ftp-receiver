@@ -160,7 +160,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 this.activeSocket = new Socket(addr.getAddress(), addr.getPort());
                 send("200 PORT command successful", ctx, "PORT", args);
             } catch (IOException e1) {
-                logger.warn("Exception thrown on opening client socket to address: [" + addr + "]", e1);
+                logger.warn("Exception thrown on opening active socket to address: [" + addr + "]", e1);
+                closeActiveSocket();
                 send("552 Requested file action aborted", ctx, "PORT", args);
             }
         }
@@ -186,8 +187,9 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                         passiveAddress[0], passiveAddress[1], passiveAddress[2], passiveAddress[3], part1, part2), ctx, "PASV", args);
                 break;
             } catch (IOException e1) {
-                logger.warn("Exception thrown on binding server socket to address: [" + addr + "], port: [" + port + "], " +
+                logger.warn("Exception thrown on binding passive socket to address: [" + addr + "], port: [" + port + "], " +
                         "attempt: [" + i + 1 + "] of: [" + passiveOpenAttempts + "]", e1);
+                closePassiveSocket();
                 // ensure port change
                 Thread.sleep(1);
             }
@@ -203,18 +205,19 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      */
     protected void list(ChannelHandlerContext ctx, String args) {
         if ("PORT".equals(lastCommand)) {
+            if (null == this.activeSocket) send("503 Bad sequence of commands", ctx, "LIST", args);
             send("150 Opening binary mode data connection for LIST " + args, ctx, "LIST", args);
             try {
                 activeSocket.getOutputStream().write(CRLF);
                 send("226 Transfer complete for LIST", ctx, "", args);
             } catch (IOException e1) {
-                logger.warn("Exception thrown on writing to client socket: [" + activeSocket + "]", e1);
+                logger.warn("Exception thrown on writing through active socket: [" + activeSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "LIST", args);
             } finally {
-                closeQuetly(activeSocket);
-                activeSocket = null;
+                closeActiveSocket();
             }
         } else if ("PASV".equals(lastCommand)) {
+            if (null == this.passiveSocket) send("503 Bad sequence of commands", ctx, "LIST", args);
             send("150 Opening binary mode data connection for LIST on port: " + passiveSocket.getLocalPort(), ctx, "LIST", args);
             Socket clientSocket = null;
             try {
@@ -223,12 +226,11 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 clientSocket.getOutputStream().close();
                 send("226 Transfer complete for LIST", ctx, "", args);
             } catch (IOException e1) {
-                logger.warn("Exception thrown on writing from server socket: [" + passiveSocket + "]," +
+                logger.warn("Exception thrown on writing through passive socket: [" + passiveSocket + "]," +
                         "accepted client socket: [" + clientSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "LIST", args);
             } finally {
-                closeQuetly(passiveSocket);
-                passiveSocket = null;
+                closePassiveSocket();
             }
         } else send("503 Bad sequence of commands", ctx, "LIST", args);
     }
@@ -241,18 +243,19 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      */
     protected void stor(ChannelHandlerContext ctx, String args) {
         if ("PORT".equals(lastCommand)) {
+            if (null == this.activeSocket) send("503 Bad sequence of commands", ctx, "STOR", args);
             send("150 Opening binary mode data connection for " + args, ctx, "", args);
             try {
                 receiver.receive(args, activeSocket.getInputStream());
                 send("226 Transfer complete for STOR " + args, ctx, "", args);
             } catch (IOException e1) {
-                logger.warn("Exception thrown on reading from client socket: [" + activeSocket + "]", e1);
+                logger.warn("Exception thrown on reading through active socket: [" + activeSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "STOR", args);
             } finally {
-                closeQuetly(activeSocket);
-                activeSocket = null;
+                closeActiveSocket();
             }
         } else if ("PASV".equals(lastCommand)) {
+            if (null == this.passiveSocket) send("503 Bad sequence of commands", ctx, "STOR", args);
             send("150 Opening binary mode data connection for " + args, ctx, "STOR", args);
             Socket clientSocket = null;
             try {
@@ -260,12 +263,11 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 receiver.receive(args, clientSocket.getInputStream());
                 send("226 Transfer complete for STOR " + args, ctx, "", args);
             } catch (IOException e1) {
-                logger.warn("Exception thrown on reading from server socket: [" + passiveSocket + "], " +
+                logger.warn("Exception thrown on reading through passive socket: [" + passiveSocket + "], " +
                         "accepted client socket: [" + clientSocket + "]", e1);
                 send("552 Requested file action aborted", ctx, "STOR", args);
             } finally {
-                closeQuetly(passiveSocket);
-                passiveSocket = null;
+                closePassiveSocket();
             }
         } else send("503 Bad sequence of commands", ctx, "STOR", args);
     }
@@ -304,21 +306,25 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         return low + offset;
     }
 
-    private static void closeQuetly(Socket socket) {
-        if(null == socket) return;
+    private void closeActiveSocket() {
+        if(null == activeSocket) return;
         try {
-            socket.close();
+            activeSocket.close();
         } catch (Exception e) {
-            logger.warn("Exception thrown on closing client socket", e);
+            logger.warn("Exception thrown on closing active socket", e);
+        } finally {
+            activeSocket = null;
         }
     }
 
-    private static void closeQuetly(ServerSocket socket) {
-        if(null == socket) return;
+    private void closePassiveSocket() {
+        if(null == passiveSocket) return;
         try {
-            socket.close();
+            passiveSocket.close();
         } catch (Exception e) {
             logger.warn("Exception thrown on closing server socket", e);
+        } finally {
+            passiveSocket = null;
         }
     }
 }
