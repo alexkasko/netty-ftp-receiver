@@ -1,11 +1,11 @@
 package com.alexkasko.netty.ftp;
 
-import org.jboss.netty.buffer.ChannelBuffer;
-import org.jboss.netty.channel.Channel;
-import org.jboss.netty.channel.ChannelHandlerContext;
-import org.jboss.netty.handler.codec.frame.FrameDecoder;
+import io.netty.buffer.ByteBuf;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.handler.codec.ByteToMessageDecoder;
 
 import java.nio.charset.Charset;
+import java.util.List;
 
 /**
  * {@link FrameDecoder} implementation, that accumulates input strings until {@code \r\n}
@@ -14,7 +14,7 @@ import java.nio.charset.Charset;
  * @author alexkasko
  * Date: 12/28/12
  */
-public class CrlfStringDecoder extends FrameDecoder {
+public class CrlfStringDecoder extends ByteToMessageDecoder {
     private static final byte CR = 13;
     private static final byte LF = 10;
 
@@ -45,22 +45,18 @@ public class CrlfStringDecoder extends FrameDecoder {
      * {@inheritDoc}
      */
     @Override
-    protected Object decode(ChannelHandlerContext ctx, Channel channel, ChannelBuffer cb) throws Exception {
+	protected void decode(ChannelHandlerContext ctx, ByteBuf cb, List<Object> out) throws Exception {
         byte[] data = new byte[maxRequestLengthBytes];
         int lineLength = 0;
-        while (true) {
-            if (!cb.readable()) {
-                cb.resetReaderIndex();
-                return null;
-            }
+        while (cb.isReadable()) {
             byte nextByte = cb.readByte();
             if (nextByte == CR) {
                 nextByte = cb.readByte();
                 if (nextByte == LF) {
-                    return new String(data, encoding);
+                	out.add(new String(data, encoding));
                 }
             } else if (nextByte == LF) {
-                return new String(data, encoding);
+            	out.add(new String(data, encoding));
             } else {
                 if (lineLength >= maxRequestLengthBytes) throw new IllegalArgumentException(
                         "Request size threshold exceeded: [" + maxRequestLengthBytes + "]");
@@ -68,5 +64,5 @@ public class CrlfStringDecoder extends FrameDecoder {
                 lineLength += 1;
             }
         }
-    }
+	}
 }

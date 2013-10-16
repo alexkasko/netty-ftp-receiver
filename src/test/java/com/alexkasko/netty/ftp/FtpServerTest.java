@@ -1,25 +1,20 @@
 package com.alexkasko.netty.ftp;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.net.ftp.FTP;
-import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPFile;
-import org.jboss.netty.bootstrap.ServerBootstrap;
-import org.jboss.netty.channel.ChannelFactory;
-import org.jboss.netty.channel.ChannelPipeline;
-import org.jboss.netty.channel.ChannelPipelineFactory;
-import org.jboss.netty.channel.Channels;
-import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
-import org.jboss.netty.handler.execution.ExecutionHandler;
-import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
-import org.junit.Test;
+import static org.junit.Assert.*;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
-import java.io.InputStream;
-import java.net.InetSocketAddress;
 
-import static java.util.concurrent.Executors.newCachedThreadPool;
+import org.apache.commons.net.ftp.FTP;
+import org.apache.commons.net.ftp.FTPClient;
+import org.junit.Test;
 
 /**
  * User: alexkasko
@@ -28,55 +23,59 @@ import static java.util.concurrent.Executors.newCachedThreadPool;
 public class FtpServerTest {
 
     @Test
-    public void test() throws IOException {
-        ChannelFactory factory = new NioServerSocketChannelFactory(newCachedThreadPool(), newCachedThreadPool());
-        ServerBootstrap bootstrap = new ServerBootstrap(factory);
-        bootstrap.setPipelineFactory(new PipelineFactory());
-        bootstrap.bind(new InetSocketAddress(2121));
+    public void test() throws IOException, InterruptedException {
+    	EventLoopGroup bossGroup = new NioEventLoopGroup();
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
+    	ServerBootstrap b = new ServerBootstrap();
+    	b.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
+				.childHandler(new ChannelInitializer<SocketChannel>() {
+
+					@Override
+					protected void initChannel(SocketChannel ch) throws Exception {
+						ChannelPipeline pipe = ch.pipeline();
+			            pipe.addLast("decoder", new CrlfStringDecoder());
+			            pipe.addLast("handler", new FtpServerHandler(new ConsoleReceiver()));
+					}
+				
+				});
+    	b.localAddress(2121).bind();
         FTPClient client = new FTPClient();
 //        https://issues.apache.org/jira/browse/NET-493
+        
         client.setBufferSize(0);
         client.connect("127.0.0.1", 2121);
+        
         // active
-        client.setFileType(FTP.BINARY_FILE_TYPE);
-        client.printWorkingDirectory();
-        client.changeWorkingDirectory("/foo");
-        client.printWorkingDirectory();
-        client.listFiles("/foo");
-        client.storeFile("bar", new ByteArrayInputStream("content".getBytes()));
-        client.rename("bar", "baz");
-        client.deleteFile("baz");
+        assertTrue(client.setFileType(FTP.BINARY_FILE_TYPE));
+        assertEquals("/",client.printWorkingDirectory());
+        assertTrue(client.changeWorkingDirectory("/foo"));
+        assertEquals("/foo",client.printWorkingDirectory());
+        assertTrue(client.listFiles("/foo").length==0);
+        assertTrue(client.storeFile("bar", new ByteArrayInputStream("content".getBytes())));
+        assertTrue(client.rename("bar", "baz"));
+      //  assertTrue(client.deleteFile("baz"));
+        
         // passive
-        client.setFileType(FTP.BINARY_FILE_TYPE);
+        assertTrue(client.setFileType(FTP.BINARY_FILE_TYPE));
         client.enterLocalPassiveMode();
-        client.printWorkingDirectory();
-        client.changeWorkingDirectory("/foo");
-        client.printWorkingDirectory();
-        client.listFiles("/foo");
-        client.storeFile("bar", new ByteArrayInputStream("content".getBytes()));
-        client.rename("bar", "baz");
-        client.deleteFile("baz");
-    }
+        assertEquals("/foo",client.printWorkingDirectory());
+        assertTrue(client.changeWorkingDirectory("/foo"));
+        assertEquals("/foo",client.printWorkingDirectory());
 
-    // testonly, use proper instantiation in production
-    private static class PipelineFactory implements ChannelPipelineFactory {
-        @Override
-        public ChannelPipeline getPipeline() throws Exception {
-            ChannelPipeline pipe = Channels.pipeline();
-            pipe.addLast("decoder", new CrlfStringDecoder());
-            pipe.addLast("executor", new ExecutionHandler(new OrderedMemoryAwareThreadPoolExecutor(1, 1048576, 1048576)));
-            pipe.addLast("handler", new FtpServerHandler(new ConsoleReceiver()));
-            return pipe;
-        }
-    }
-
-    private static class ConsoleReceiver implements DataReceiver {
-        @Override
-        public void receive(String name, InputStream data) throws IOException {
-            System.out.println("receiving file: [" + name + "]");
-            System.out.println("receiving data:");
-            IOUtils.copy(data, System.out);
-            System.out.println("");
-        }
+        //TODO make a virtual filesystem that would work with directory
+        //assertTrue(client.listFiles("/foo").length==1);
+        
+        assertTrue(client.storeFile("bar", new ByteArrayInputStream("content".getBytes())));
+        assertTrue(client.rename("bar", "baz"));
+       // client.deleteFile("baz");
+        
+        assertEquals(221,client.quit());
+        try {
+        	client.noop();
+        	fail("Should throw exception");
+        } catch (IOException e) {
+        	//expected;
+        } 
+       
     }
 }
