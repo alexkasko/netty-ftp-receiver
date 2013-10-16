@@ -1,25 +1,22 @@
 package com.alexkasko.netty.ftp;
 
-import org.apache.commons.io.IOUtils;
-import org.apache.commons.net.ftp.FTP;
-import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPFile;
-import org.jboss.netty.bootstrap.ServerBootstrap;
-import org.jboss.netty.channel.ChannelFactory;
-import org.jboss.netty.channel.ChannelPipeline;
-import org.jboss.netty.channel.ChannelPipelineFactory;
-import org.jboss.netty.channel.Channels;
-import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
-import org.jboss.netty.handler.execution.ExecutionHandler;
-import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
-import org.junit.Test;
+import io.netty.bootstrap.ServerBootstrap;
+import io.netty.channel.ChannelFuture;
+import io.netty.channel.ChannelInitializer;
+import io.netty.channel.ChannelPipeline;
+import io.netty.channel.EventLoopGroup;
+import io.netty.channel.nio.NioEventLoopGroup;
+import io.netty.channel.socket.SocketChannel;
+import io.netty.channel.socket.nio.NioServerSocketChannel;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
-import java.net.InetSocketAddress;
 
-import static java.util.concurrent.Executors.newCachedThreadPool;
+import org.apache.commons.io.IOUtils;
+import org.apache.commons.net.ftp.FTP;
+import org.apache.commons.net.ftp.FTPClient;
+import org.junit.Test;
 
 /**
  * User: alexkasko
@@ -28,11 +25,22 @@ import static java.util.concurrent.Executors.newCachedThreadPool;
 public class FtpServerTest {
 
     @Test
-    public void test() throws IOException {
-        ChannelFactory factory = new NioServerSocketChannelFactory(newCachedThreadPool(), newCachedThreadPool());
-        ServerBootstrap bootstrap = new ServerBootstrap(factory);
-        bootstrap.setPipelineFactory(new PipelineFactory());
-        bootstrap.bind(new InetSocketAddress(2121));
+    public void test() throws IOException, InterruptedException {
+    	EventLoopGroup bossGroup = new NioEventLoopGroup();
+		EventLoopGroup workerGroup = new NioEventLoopGroup();
+    	ServerBootstrap b = new ServerBootstrap();
+    	b.group(bossGroup, workerGroup).channel(NioServerSocketChannel.class)
+				.childHandler(new ChannelInitializer<SocketChannel>() {
+
+					@Override
+					protected void initChannel(SocketChannel ch) throws Exception {
+						ChannelPipeline pipe = ch.pipeline();
+			            pipe.addLast("decoder", new CrlfStringDecoder());
+			            pipe.addLast("handler", new FtpServerHandler(new ConsoleReceiver()));
+					}
+				
+				});
+    	b.localAddress(2121).bind();
         FTPClient client = new FTPClient();
 //        https://issues.apache.org/jira/browse/NET-493
         client.setBufferSize(0);
@@ -58,17 +66,6 @@ public class FtpServerTest {
         client.deleteFile("baz");
     }
 
-    // testonly, use proper instantiation in production
-    private static class PipelineFactory implements ChannelPipelineFactory {
-        @Override
-        public ChannelPipeline getPipeline() throws Exception {
-            ChannelPipeline pipe = Channels.pipeline();
-            pipe.addLast("decoder", new CrlfStringDecoder());
-            pipe.addLast("executor", new ExecutionHandler(new OrderedMemoryAwareThreadPoolExecutor(1, 1048576, 1048576)));
-            pipe.addLast("handler", new FtpServerHandler(new ConsoleReceiver()));
-            return pipe;
-        }
-    }
 
     private static class ConsoleReceiver implements DataReceiver {
         @Override

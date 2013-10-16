@@ -4,7 +4,7 @@ Netty handler for receiving files over FTP
 [Netty](http://netty.io/) handler, partial implementation of RFC 959 "File Transfer Protocol (FTP)"
 for receiving FTP files. Both active and passive modes are supported.
 
-Depends on Netty and [slf4j-api](http://www.slf4j.org/).
+Depends on Netty 4.0.10.Final and [slf4j-api](http://www.slf4j.org/).
 
 Library is available in [Maven cental](http://repo1.maven.org/maven2/com/alexkasko/netty/):
 

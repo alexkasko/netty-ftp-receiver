@@ -1,15 +1,20 @@
 package com.alexkasko.netty.ftp;
 
-import org.jboss.netty.channel.*;
-import org.slf4j.Logger;
-import org.slf4j.LoggerFactory;
+import static java.lang.System.*;
+import io.netty.buffer.Unpooled;
+import io.netty.channel.ChannelHandlerContext;
+import io.netty.channel.SimpleChannelInboundHandler;
 
 import java.io.IOException;
-import java.net.*;
+import java.net.InetAddress;
+import java.net.InetSocketAddress;
+import java.net.ServerSocket;
+import java.net.Socket;
+import java.net.UnknownHostException;
 import java.nio.charset.Charset;
 
-import static java.lang.System.currentTimeMillis;
-import static org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer;
+import org.slf4j.Logger;
+import org.slf4j.LoggerFactory;
 
 /**
  * Netty handler, partial implementation of <a href="http://tools.ietf.org/html/rfc959">RFC 959 "File Transfer Protocol (FTP)"</a>
@@ -18,14 +23,15 @@ import static org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer;
  * @author alexkasko
  * Date: 12/27/12
  */
-public class FtpServerHandler extends SimpleChannelUpstreamHandler {
+public class FtpServerHandler extends SimpleChannelInboundHandler<String> {
     private static final Logger logger = LoggerFactory.getLogger(FtpServerHandler.class);
     private static final byte CR = 13;
     private static final byte LF = 10;
     private static final byte[] CRLF = new byte[]{CR, LF};
     private static final Charset ASCII = Charset.forName("ASCII");
 
-    private final DataReceiver receiver;
+
+	private final DataReceiver receiver;
     private final byte[] passiveAddress;
     private final int lowestPassivePort;
     private final int highestPassivePort;
@@ -89,9 +95,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     /**
      * {@inheritDoc}
      */
-    @Override
-    public void messageReceived(ChannelHandlerContext ctx, MessageEvent e) throws Exception {
-        String message = ((String) e.getMessage()).trim();
+	@Override
+	public void channelRead0(ChannelHandlerContext ctx, String message) throws Exception {
         if (message.length() < 3) send("501 Syntax error", ctx, message, "");
         String cmd = 3 == message.length() ? message.substring(0, 3) : message.substring(0, 4).trim();
         String args = message.length() > cmd.length() ? message.substring(cmd.length() + 1) : "";
@@ -113,26 +118,28 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         else if ("STOR".equals(cmd)) stor(ctx, args);
         else send("500 Command unrecognized", ctx, cmd, args);
         lastCommand = cmd;
-    }
+	}
 
+	/**
+	 * {@inheritDoc}
+	 */
+	@Override
+	public void exceptionCaught(ChannelHandlerContext ctx, Throwable cause) throws Exception {
+		  logger.error("Exception caught in FtpServerHandler", cause);
+	      send("500 Unspecified error", ctx, cause.getMessage(), "");
+	}
+	
     /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
-        logger.error("Exception caught in FtpServerHandler", e.getCause());
-        send("500 Unspecified error", ctx, e.getCause().getMessage(), "");
-    }
+	 * {@inheritDoc}
+	 */
+	
+	@Override
+	public void channelActive(ChannelHandlerContext ctx) throws Exception {
+		   send("220 Service ready", ctx, "[connected]", "");
+	}
+	
 
-    /**
-     * {@inheritDoc}
-     */
-    @Override
-    public void channelConnected(ChannelHandlerContext ctx, ChannelStateEvent e) throws Exception {
-        send("220 Service ready", ctx, "[connected]", "");
-    }
-
-    /**
+	/**
      * TYPE command handler
      *
      * @param ctx handler context
@@ -166,7 +173,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             }
         }
     }
-
+    
     /**
      * PASV command handler
      *
@@ -279,7 +286,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         }
         String line = response + "\r\n";
         byte[] data = line.getBytes(ASCII);
-        ctx.getChannel().write(wrappedBuffer(data));
+        ctx.channel().writeAndFlush(Unpooled.wrappedBuffer(data));
     }
 
     private static InetSocketAddress parsePortArgs(String portArgs) {
