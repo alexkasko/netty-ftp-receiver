@@ -6,7 +6,7 @@ for receiving FTP files. Both active and passive modes are supported.
 
 Depends on Netty 3 and [slf4j-api](http://www.slf4j.org/).
 
-Netty 4 support is implemented in [project fork](https://github.com/codingtony/netty-ftp-receiver) by codingtony.
+Netty 4 compatibility and more complete FTP support is implemented in [fork by codingtony](https://github.com/codingtony/netty-ftp-receiver).
 
 Library is available in [Maven cental](http://repo1.maven.org/maven2/com/alexkasko/netty/):
 
