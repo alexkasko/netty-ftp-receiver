@@ -111,6 +111,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         else if ("PASV".equals(cmd)) pasv(ctx, args);
         else if ("LIST".equals(cmd)) list(ctx, args);
         else if ("STOR".equals(cmd)) stor(ctx, args);
+        else if ("QUIT".equals(cmd)) send("221 QUIT command successful", ctx, "QUIT", args);
         else send("500 Command unrecognized", ctx, cmd, args);
         lastCommand = cmd;
     }

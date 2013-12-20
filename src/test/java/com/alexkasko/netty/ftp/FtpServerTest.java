@@ -4,6 +4,7 @@ import org.apache.commons.io.IOUtils;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
 import org.apache.commons.net.ftp.FTPFile;
+import org.apache.commons.net.ftp.FTPReply;
 import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.channel.ChannelFactory;
 import org.jboss.netty.channel.ChannelPipeline;
@@ -12,14 +13,20 @@ import org.jboss.netty.channel.Channels;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
 import org.jboss.netty.handler.execution.ExecutionHandler;
 import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
+import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
 import java.io.IOException;
 import java.io.InputStream;
 import java.net.InetSocketAddress;
+import java.nio.charset.Charset;
 
 import static java.util.concurrent.Executors.newCachedThreadPool;
+import static org.apache.commons.net.ftp.FTPReply.isPositiveCompletion;
+import static org.junit.Assert.assertEquals;
+import static org.junit.Assert.assertFalse;
+import static org.junit.Assert.assertTrue;
 
 /**
  * User: alexkasko
@@ -28,34 +35,39 @@ import static java.util.concurrent.Executors.newCachedThreadPool;
 public class FtpServerTest {
 
     @Test
-    public void test() throws IOException {
+    public void test() throws IOException, InterruptedException {
         ChannelFactory factory = new NioServerSocketChannelFactory(newCachedThreadPool(), newCachedThreadPool());
         ServerBootstrap bootstrap = new ServerBootstrap(factory);
         bootstrap.setPipelineFactory(new PipelineFactory());
         bootstrap.bind(new InetSocketAddress(2121));
         FTPClient client = new FTPClient();
-//        https://issues.apache.org/jira/browse/NET-493
-        client.setBufferSize(0);
-        client.connect("127.0.0.1", 2121);
         // active
-        client.setFileType(FTP.BINARY_FILE_TYPE);
-        client.printWorkingDirectory();
-        client.changeWorkingDirectory("/foo");
-        client.printWorkingDirectory();
-        client.listFiles("/foo");
-        client.storeFile("bar", new ByteArrayInputStream("content".getBytes()));
-        client.rename("bar", "baz");
-        client.deleteFile("baz");
+        client.connect("127.0.0.1", 2121);
+        assertTrue(isPositiveCompletion(client.getReplyCode()));
+        assertTrue(client.setFileType(FTP.BINARY_FILE_TYPE));
+        assertEquals("/", client.printWorkingDirectory());
+        assertTrue(client.changeWorkingDirectory("/foo"));
+        assertEquals("/foo", client.printWorkingDirectory());
+        assertEquals(0, client.listFiles("/foo").length);
+        assertTrue(client.storeFile("bar", new ByteArrayInputStream("content".getBytes(Charset.forName("UTF-8")))));
+        assertTrue(client.rename("bar", "baz"));
+        assertFalse(client.deleteFile("baz"));
+        assertTrue(client.logout());
+        client.disconnect();
         // passive
-        client.setFileType(FTP.BINARY_FILE_TYPE);
+        client.connect("127.0.0.1", 2121);
+        assertTrue(isPositiveCompletion(client.getReplyCode()));
+        assertTrue(client.setFileType(FTP.BINARY_FILE_TYPE));
         client.enterLocalPassiveMode();
-        client.printWorkingDirectory();
-        client.changeWorkingDirectory("/foo");
-        client.printWorkingDirectory();
-        client.listFiles("/foo");
-        client.storeFile("bar", new ByteArrayInputStream("content".getBytes()));
-        client.rename("bar", "baz");
-        client.deleteFile("baz");
+        assertEquals("/", client.printWorkingDirectory());
+        assertTrue(client.changeWorkingDirectory("/foo"));
+        assertEquals("/foo", client.printWorkingDirectory());
+        assertEquals(0, client.listFiles("/foo").length);
+        assertTrue(client.storeFile("bar", new ByteArrayInputStream("content".getBytes(Charset.forName("UTF-8")))));
+        assertTrue(client.rename("bar", "baz"));
+        assertFalse(client.deleteFile("baz"));
+        assertTrue(client.logout());
+        client.disconnect();
     }
 
     // testonly, use proper instantiation in production
