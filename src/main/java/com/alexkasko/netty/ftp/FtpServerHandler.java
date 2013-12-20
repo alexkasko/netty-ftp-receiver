@@ -247,7 +247,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             if (null == this.activeSocket) send("503 Bad sequence of commands", ctx, "STOR", args);
             send("150 Opening binary mode data connection for " + args, ctx, "", args);
             try {
-                receiver.receive(args, activeSocket.getInputStream());
+                receiver.receive(curDir, args, activeSocket.getInputStream());
                 send("226 Transfer complete for STOR " + args, ctx, "", args);
             } catch (IOException e1) {
                 logger.warn("Exception thrown on reading through active socket: [" + activeSocket + "]", e1);
@@ -261,7 +261,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             Socket clientSocket = null;
             try {
                 clientSocket = passiveSocket.accept();
-                receiver.receive(args, clientSocket.getInputStream());
+                receiver.receive(curDir, args, clientSocket.getInputStream());
                 send("226 Transfer complete for STOR " + args, ctx, "", args);
             } catch (IOException e1) {
                 logger.warn("Exception thrown on reading through passive socket: [" + passiveSocket + "], " +

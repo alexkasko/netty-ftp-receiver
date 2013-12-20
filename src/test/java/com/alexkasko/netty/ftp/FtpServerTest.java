@@ -84,8 +84,8 @@ public class FtpServerTest {
 
     private static class ConsoleReceiver implements DataReceiver {
         @Override
-        public void receive(String name, InputStream data) throws IOException {
-            System.out.println("receiving file: [" + name + "]");
+        public void receive(String directory, String name, InputStream data) throws IOException {
+            System.out.println("receiving file: [" + name + "] to directory: [" + directory + "]");
             System.out.println("receiving data:");
             IOUtils.copy(data, System.out);
             System.out.println("");
