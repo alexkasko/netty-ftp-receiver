@@ -27,6 +27,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
 
     private final DataReceiver receiver;
     private final byte[] passiveAddress;
+    private final byte[] passiveAdvertisedAddress;
     private final int lowestPassivePort;
     private final int highestPassivePort;
     private final int passiveOpenAttempts;
@@ -55,7 +56,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
      */
     public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
-        this(receiver, passiveAddress.getAddress(), lowestPassivePort, highestPassivePort, passiveOpenAttempts);
+        this(receiver, passiveAddress, passiveAddress, lowestPassivePort, highestPassivePort, passiveOpenAttempts);
     }
 
     /**
@@ -68,10 +69,39 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
      */
     public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
+        this(receiver, passiveAddress, passiveAddress, lowestPassivePort, highestPassivePort, passiveOpenAttempts);
+    }
+
+    /**
+     * Constructor for FTP passive mode
+     *
+     * @param receiver data receiver implementation
+     * @param passiveAddress passive IP address that will be used for server socket bind
+     * @param passiveAdvertisedAddress passive IP address that will be advertized to client
+     * @param lowestPassivePort lowest bound of passive ports range
+     * @param highestPassivePort highest bound of passive ports range
+     * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
+     */
+    public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, InetAddress passiveAdvertisedAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
+        this(receiver, passiveAddress.getAddress(), passiveAdvertisedAddress.getAddress(), lowestPassivePort, highestPassivePort, passiveOpenAttempts);
+    }
+
+    /**
+     * Constructor for FTP passive mode with separate advertized address
+     *
+     * @param receiver data receiver implementation
+     * @param passiveAddress passive IP address that will be used for server socket bind
+     * @param passiveAdvertisedAddress passive IP address that will be advertized to client
+     * @param lowestPassivePort lowest bound of passive ports range
+     * @param highestPassivePort highest bound of passive ports range
+     * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
+     */
+    public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, byte[] passiveAdvertisedAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
         if(null == receiver) throw new IllegalArgumentException("Provided receiver is null");
         this.receiver = receiver;
         if(null == passiveAddress) throw new IllegalArgumentException("Provided passiveAddress is null");
         this.passiveAddress = passiveAddress;
+        this.passiveAdvertisedAddress = passiveAdvertisedAddress;
         if (lowestPassivePort <= 0 || lowestPassivePort >= 1 << 16) throw new IllegalArgumentException(
                 "Provided lowestPassivePort: [" + lowestPassivePort + "] ia out of valid range");
         if (highestPassivePort <= 0 || highestPassivePort >= 1 << 16) throw new IllegalArgumentException(
@@ -186,7 +216,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 addr = InetAddress.getByAddress(passiveAddress);
                 this.passiveSocket = new ServerSocket(port, 50, addr);
                 send(String.format("227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)",
-                        passiveAddress[0], passiveAddress[1], passiveAddress[2], passiveAddress[3], part1, part2), ctx, "PASV", args);
+                        passiveAdvertisedAddress[0], passiveAdvertisedAddress[1], passiveAdvertisedAddress[2], passiveAdvertisedAddress[3],
+                        part1, part2), ctx, "PASV", args);
                 break;
             } catch (IOException e1) {
                 logger.warn("Exception thrown on binding passive socket to address: [" + addr + "], port: [" + port + "], " +
