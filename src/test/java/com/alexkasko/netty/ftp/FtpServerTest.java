@@ -49,6 +49,7 @@ public class FtpServerTest {
         assertTrue(client.changeWorkingDirectory("/foo"));
         assertEquals("/foo", client.printWorkingDirectory());
         assertEquals(0, client.listFiles("/foo").length);
+        assertTrue(client.allocate(42));
         assertTrue(client.storeFile("bar", new ByteArrayInputStream("content".getBytes(Charset.forName("UTF-8")))));
         assertTrue(client.rename("bar", "baz"));
         assertFalse(client.deleteFile("baz"));
@@ -63,6 +64,7 @@ public class FtpServerTest {
         assertTrue(client.changeWorkingDirectory("/foo"));
         assertEquals("/foo", client.printWorkingDirectory());
         assertEquals(0, client.listFiles("/foo").length);
+        assertTrue(client.allocate(42));
         assertTrue(client.storeFile("bar", new ByteArrayInputStream("content".getBytes(Charset.forName("UTF-8")))));
         assertTrue(client.rename("bar", "baz"));
         assertFalse(client.deleteFile("baz"));
