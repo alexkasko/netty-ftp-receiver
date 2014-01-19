@@ -7,6 +7,7 @@ import org.slf4j.LoggerFactory;
 import java.io.IOException;
 import java.net.*;
 import java.nio.charset.Charset;
+import java.util.concurrent.atomic.AtomicReference;
 
 import static java.lang.System.currentTimeMillis;
 import static org.jboss.netty.buffer.ChannelBuffers.wrappedBuffer;
@@ -32,10 +33,12 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     private final int highestPassivePort;
     private final int passiveOpenAttempts;
 
-    private String curDir = "/";
-    private String lastCommand = "";
-    private Socket activeSocket = null;
-    private ServerSocket passiveSocket = null;
+    // netty may be configured to use different worker threads with single handler
+    // even if handler is created for each pipeline
+    private AtomicReference<String> curDir = new AtomicReference<String>("/");
+    private AtomicReference<String> lastCommand = new AtomicReference<String>("");
+    private AtomicReference<Socket> activeSocket = new AtomicReference<Socket>();
+    private AtomicReference<ServerSocket> passiveSocket = new AtomicReference<ServerSocket>();
 
     /**
      * Constructor for FTP active mode
@@ -127,8 +130,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         String args = message.length() > cmd.length() ? message.substring(cmd.length() + 1) : "";
         // dispatch
         if ("USER".equals(cmd)) send("230 USER LOGGED IN", ctx, cmd, args);
-        else if ("CWD".equals(cmd)) { curDir = args; send("250 CWD command successful", ctx, cmd, args); }
-        else if ("PWD".equals(cmd)) send("257 \"" + curDir + "\" is current directory", ctx, cmd, args);
+        else if ("CWD".equals(cmd)) { curDir.set(args); send("250 CWD command successful", ctx, cmd, args); }
+        else if ("PWD".equals(cmd)) send("257 \"" + curDir.get() + "\" is current directory", ctx, cmd, args);
         else if ("MKD".equals(cmd)) send("521 \"" + args + "\" directory exists", ctx, cmd, args);
         else if ("DELE".equals(cmd)) send("550 " + args + ": no such file or directory", ctx, cmd, args);
         else if ("RMD".equals(cmd)) send("550 " + args + ": no such file or directory", ctx, cmd, args);
@@ -144,7 +147,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         else if ("QUIT".equals(cmd)) send("221 QUIT command successful", ctx, "QUIT", args);
         else if ("ALLO".equals(cmd)) send("202 No storage allocation necessary", ctx, "ALLO", args);
         else send("500 Command unrecognized", ctx, cmd, args);
-        lastCommand = cmd;
+        lastCommand.set(cmd);
     }
 
     /**
@@ -184,16 +187,22 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      */
     protected void port(ChannelHandlerContext ctx, String args) {
         InetSocketAddress addr = parsePortArgs(args);
+        Socket as = activeSocket.get();
         if (logger.isTraceEnabled()) logger.trace(String.valueOf(addr));
         if (null == addr) send("501 Syntax error in parameters or arguments", ctx, "PORT", args);
-        else if (null != this.activeSocket && !activeSocket.isClosed()) send("503 Bad sequence of commands", ctx, "PORT", args);
+        else if (null != as) send("503 Bad sequence of commands", ctx, "PORT", args);
         else {
             try {
-                this.activeSocket = new Socket(addr.getAddress(), addr.getPort());
-                send("200 PORT command successful", ctx, "PORT", args);
+                Socket created = new Socket(addr.getAddress(), addr.getPort());
+                boolean success = activeSocket.compareAndSet(null, created);
+                if(success) send("200 PORT command successful", ctx, "PORT", args);
+                else {
+                    logger.warn("Invalid concurrent handler usage detected");
+                    send("425 Server error", ctx, "PORT", args);
+                }
             } catch (IOException e1) {
                 logger.warn("Exception thrown on opening active socket to address: [" + addr + "]", e1);
-                closeActiveSocket();
+                closeActiveSocket(null);
                 send("552 Requested file action aborted", ctx, "PORT", args);
             }
         }
@@ -207,6 +216,12 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @throws InterruptedException
      */
     protected void pasv(ChannelHandlerContext ctx, String args) throws InterruptedException {
+        ServerSocket ps = passiveSocket.get();
+        if(null != ps) {
+            logger.warn("Invalid concurrent handler usage detected");
+            send("425 Server error", ctx, "PASV", args);
+            return;
+        }
         for (int i = 0; i < passiveOpenAttempts; i++) {
             int port = choosePassivePort(lowestPassivePort, highestPassivePort);
             int part1 = (byte) (port >> 8) & 0xff;
@@ -214,7 +229,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             InetAddress addr = null;
             try {
                 addr = InetAddress.getByAddress(passiveAddress);
-                this.passiveSocket = new ServerSocket(port, 50, addr);
+                ps = new ServerSocket(port, 50, addr);
                 send(String.format("227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)",
                         passiveAdvertisedAddress[0], passiveAdvertisedAddress[1], passiveAdvertisedAddress[2], passiveAdvertisedAddress[3],
                         part1, part2), ctx, "PASV", args);
@@ -222,12 +237,19 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             } catch (IOException e1) {
                 logger.warn("Exception thrown on binding passive socket to address: [" + addr + "], port: [" + port + "], " +
                         "attempt: [" + i + 1 + "] of: [" + passiveOpenAttempts + "]", e1);
-                closePassiveSocket();
+                closePassiveSocket(ps);
                 // ensure port change
                 Thread.sleep(1);
             }
         }
-        if(null == this.passiveSocket) send("551 Requested action aborted", ctx, "PASV", args);
+        if(null != ps) {
+            boolean success = passiveSocket.compareAndSet(null, ps);
+            if(!success) {
+                logger.warn("Invalid concurrent handler usage detected");
+                send("425 Server error", ctx, "PASV", args);
+            }
+        }
+        else send("551 Requested action aborted", ctx, "PASV", args);
     }
 
     /**
@@ -237,34 +259,38 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param args command arguments
      */
     protected void list(ChannelHandlerContext ctx, String args) {
-        if ("PORT".equals(lastCommand)) {
-            if (null == this.activeSocket) send("503 Bad sequence of commands", ctx, "LIST", args);
-            send("150 Opening binary mode data connection for LIST " + args, ctx, "LIST", args);
-            try {
-                activeSocket.getOutputStream().write(CRLF);
-                send("226 Transfer complete for LIST", ctx, "", args);
-            } catch (IOException e1) {
-                logger.warn("Exception thrown on writing through active socket: [" + activeSocket + "]", e1);
-                send("552 Requested file action aborted", ctx, "LIST", args);
-            } finally {
-                closeActiveSocket();
-            }
-        } else if ("PASV".equals(lastCommand)) {
-            if (null == this.passiveSocket) send("503 Bad sequence of commands", ctx, "LIST", args);
-            send("150 Opening binary mode data connection for LIST on port: " + passiveSocket.getLocalPort(), ctx, "LIST", args);
-            Socket clientSocket = null;
-            try {
-                clientSocket = passiveSocket.accept();
-                clientSocket.getOutputStream().write(CRLF);
-                clientSocket.getOutputStream().close();
-                send("226 Transfer complete for LIST", ctx, "", args);
-            } catch (IOException e1) {
-                logger.warn("Exception thrown on writing through passive socket: [" + passiveSocket + "]," +
-                        "accepted client socket: [" + clientSocket + "]", e1);
-                send("552 Requested file action aborted", ctx, "LIST", args);
-            } finally {
-                closePassiveSocket();
-            }
+        if ("PORT".equals(lastCommand.get())) {
+            Socket as = activeSocket.get();
+            if (null != as) {
+                send("150 Opening binary mode data connection for LIST " + args, ctx, "LIST", args);
+                try {
+                    as.getOutputStream().write(CRLF);
+                    send("226 Transfer complete for LIST", ctx, "", args);
+                } catch (IOException e1) {
+                    logger.warn("Exception thrown on writing through active socket: [" + as + "]", e1);
+                    send("552 Requested file action aborted", ctx, "LIST", args);
+                } finally {
+                    closeActiveSocket(as);
+                }
+            } else send("503 Bad sequence of commands", ctx, "LIST", args);
+        } else if ("PASV".equals(lastCommand.get())) {
+            ServerSocket ps = this.passiveSocket.get();
+            if (null != ps) {
+                send("150 Opening binary mode data connection for LIST on port: " + ps, ctx, "LIST", args);
+                Socket clientSocket = null;
+                try {
+                    clientSocket = ps.accept();
+                    clientSocket.getOutputStream().write(CRLF);
+                    clientSocket.getOutputStream().close();
+                    send("226 Transfer complete for LIST", ctx, "", args);
+                } catch (IOException e1) {
+                    logger.warn("Exception thrown on writing through passive socket: [" + ps + "]," +
+                            "accepted client socket: [" + clientSocket + "]", e1);
+                    send("552 Requested file action aborted", ctx, "LIST", args);
+                } finally {
+                    closePassiveSocket(ps);
+                }
+            } else send("503 Bad sequence of commands", ctx, "LIST", args);
         } else send("503 Bad sequence of commands", ctx, "LIST", args);
     }
 
@@ -275,33 +301,37 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param args command arguments
      */
     protected void stor(ChannelHandlerContext ctx, String args) {
-        if ("PORT".equals(lastCommand)) {
-            if (null == this.activeSocket) send("503 Bad sequence of commands", ctx, "STOR", args);
-            send("150 Opening binary mode data connection for " + args, ctx, "", args);
-            try {
-                receiver.receive(curDir, args, activeSocket.getInputStream());
-                send("226 Transfer complete for STOR " + args, ctx, "", args);
-            } catch (IOException e1) {
-                logger.warn("Exception thrown on reading through active socket: [" + activeSocket + "]", e1);
-                send("552 Requested file action aborted", ctx, "STOR", args);
-            } finally {
-                closeActiveSocket();
-            }
-        } else if ("PASV".equals(lastCommand)) {
-            if (null == this.passiveSocket) send("503 Bad sequence of commands", ctx, "STOR", args);
-            send("150 Opening binary mode data connection for " + args, ctx, "STOR", args);
-            Socket clientSocket = null;
-            try {
-                clientSocket = passiveSocket.accept();
-                receiver.receive(curDir, args, clientSocket.getInputStream());
-                send("226 Transfer complete for STOR " + args, ctx, "", args);
-            } catch (IOException e1) {
-                logger.warn("Exception thrown on reading through passive socket: [" + passiveSocket + "], " +
-                        "accepted client socket: [" + clientSocket + "]", e1);
-                send("552 Requested file action aborted", ctx, "STOR", args);
-            } finally {
-                closePassiveSocket();
-            }
+        if ("PORT".equals(lastCommand.get())) {
+            Socket as = activeSocket.get();
+            if (null != as) {
+                send("150 Opening binary mode data connection for " + args, ctx, "", args);
+                try {
+                    receiver.receive(curDir.get(), args, as.getInputStream());
+                    send("226 Transfer complete for STOR " + args, ctx, "", args);
+                } catch (IOException e1) {
+                    logger.warn("Exception thrown on reading through active socket: [" + as + "]", e1);
+                    send("552 Requested file action aborted", ctx, "STOR", args);
+                } finally {
+                    closeActiveSocket(as);
+                }
+            } else send("503 Bad sequence of commands", ctx, "STOR", args);
+        } else if ("PASV".equals(lastCommand.get())) {
+            ServerSocket ps = this.passiveSocket.get();
+            if (null != ps) {
+                send("150 Opening binary mode data connection for " + args, ctx, "STOR", args);
+                Socket clientSocket = null;
+                try {
+                    clientSocket = ps.accept();
+                    receiver.receive(curDir.get(), args, clientSocket.getInputStream());
+                    send("226 Transfer complete for STOR " + args, ctx, "", args);
+                } catch (IOException e1) {
+                    logger.warn("Exception thrown on reading through passive socket: [" + ps + "], " +
+                            "accepted client socket: [" + clientSocket + "]", e1);
+                    send("552 Requested file action aborted", ctx, "STOR", args);
+                } finally {
+                    closePassiveSocket(ps);
+                }
+            } else send("503 Bad sequence of commands", ctx, "STOR", args);
         } else send("503 Bad sequence of commands", ctx, "STOR", args);
     }
 
@@ -339,25 +369,29 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         return low + offset;
     }
 
-    private void closeActiveSocket() {
-        if(null == activeSocket) return;
+    private void closeActiveSocket(Socket socket) {
+        Socket as = null != socket ? socket : activeSocket.get();
+        if(null == as) return;
         try {
-            activeSocket.close();
+            as.close();
         } catch (Exception e) {
             logger.warn("Exception thrown on closing active socket", e);
         } finally {
-            activeSocket = null;
+            boolean success = activeSocket.compareAndSet(as, null);
+            if(!success) logger.warn("Invalid concurrent handler usage detected");
         }
     }
 
-    private void closePassiveSocket() {
-        if(null == passiveSocket) return;
+    private void closePassiveSocket(ServerSocket socket) {
+        ServerSocket ps = null != socket ? socket: passiveSocket.get();
+        if(null == ps) return;
         try {
-            passiveSocket.close();
+            ps.close();
         } catch (Exception e) {
             logger.warn("Exception thrown on closing server socket", e);
         } finally {
-            passiveSocket = null;
+            boolean success = passiveSocket.compareAndSet(ps, null);
+            if(!success) logger.warn("Invalid concurrent handler usage detected");
         }
     }
 }
