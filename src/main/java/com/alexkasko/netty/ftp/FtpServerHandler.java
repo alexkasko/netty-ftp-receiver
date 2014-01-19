@@ -32,6 +32,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     private final int lowestPassivePort;
     private final int highestPassivePort;
     private final int passiveOpenAttempts;
+    private final int passiveSoTimeoutMillis;
 
     // netty may be configured to use different worker threads with single handler
     // even if handler is created for each pipeline
@@ -46,33 +47,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param receiver data receiver implementation
      */
     public FtpServerHandler(DataReceiver receiver) {
-        this(receiver, new byte[]{127, 0, 0, 1}, 2121, 4242, 10);
-    }
-
-    /**
-     * Constructor for FTP passive mode
-     *
-     * @param receiver data receiver implementation
-     * @param passiveAddress passive IP address
-     * @param lowestPassivePort lowest bound of passive ports range
-     * @param highestPassivePort highest bound of passive ports range
-     * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
-     */
-    public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
-        this(receiver, passiveAddress, passiveAddress, lowestPassivePort, highestPassivePort, passiveOpenAttempts);
-    }
-
-    /**
-     * Constructor for FTP passive mode
-     *
-     * @param receiver data receiver implementation
-     * @param passiveAddress passive IP address
-     * @param lowestPassivePort lowest bound of passive ports range
-     * @param highestPassivePort highest bound of passive ports range
-     * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
-     */
-    public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
-        this(receiver, passiveAddress, passiveAddress, lowestPassivePort, highestPassivePort, passiveOpenAttempts);
+        this(receiver, new byte[]{127, 0, 0, 1}, new byte[]{127, 0, 0, 1}, 2121, 4242, 10, 0);
     }
 
     /**
@@ -85,8 +60,10 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param highestPassivePort highest bound of passive ports range
      * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
      */
-    public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, InetAddress passiveAdvertisedAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
-        this(receiver, passiveAddress.getAddress(), passiveAdvertisedAddress.getAddress(), lowestPassivePort, highestPassivePort, passiveOpenAttempts);
+    public FtpServerHandler(DataReceiver receiver, InetAddress passiveAddress, InetAddress passiveAdvertisedAddress,
+                            int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts, int passiveSoTimeoutMillis) {
+        this(receiver, passiveAddress.getAddress(), passiveAdvertisedAddress.getAddress(), lowestPassivePort,
+                highestPassivePort, passiveOpenAttempts, passiveSoTimeoutMillis);
     }
 
     /**
@@ -99,7 +76,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
      * @param highestPassivePort highest bound of passive ports range
      * @param passiveOpenAttempts number of ports to choose for passive socket open before reporting error
      */
-    public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, byte[] passiveAdvertisedAddress, int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts) {
+    public FtpServerHandler(DataReceiver receiver, byte[] passiveAddress, byte[] passiveAdvertisedAddress,
+                            int lowestPassivePort, int highestPassivePort, int passiveOpenAttempts, int passiveSoTimeoutMillis) {
         if(null == receiver) throw new IllegalArgumentException("Provided receiver is null");
         this.receiver = receiver;
         if(null == passiveAddress) throw new IllegalArgumentException("Provided passiveAddress is null");
@@ -117,6 +95,9 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
         if(passiveOpenAttempts <= 0) throw new IllegalArgumentException(
                 "Provided passiveOpenAttempts: [" + passiveOpenAttempts + "] must be positive");
         this.passiveOpenAttempts = passiveOpenAttempts;
+        if(passiveSoTimeoutMillis < 0) throw new IllegalArgumentException(
+                "Provided passiveSoTimeoutMillis: [" + passiveSoTimeoutMillis + "] must be positive");
+        this.passiveSoTimeoutMillis = passiveSoTimeoutMillis;
     }
 
     /**
@@ -229,7 +210,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
             InetAddress addr = null;
             try {
                 addr = InetAddress.getByAddress(passiveAddress);
-                ps = new ServerSocket(port, 50, addr);
+                ps = new ServerSocket(port, 0, addr);
+                ps.setSoTimeout(passiveSoTimeoutMillis);
                 send(String.format("227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)",
                         passiveAdvertisedAddress[0] & 0xff, passiveAdvertisedAddress[1] & 0xff,
                         passiveAdvertisedAddress[2] & 0xff, passiveAdvertisedAddress[3] & 0xff,
