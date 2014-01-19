@@ -231,7 +231,8 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
                 addr = InetAddress.getByAddress(passiveAddress);
                 ps = new ServerSocket(port, 50, addr);
                 send(String.format("227 Entering Passive Mode (%d,%d,%d,%d,%d,%d)",
-                        passiveAdvertisedAddress[0], passiveAdvertisedAddress[1], passiveAdvertisedAddress[2], passiveAdvertisedAddress[3],
+                        passiveAdvertisedAddress[0] & 0xff, passiveAdvertisedAddress[1] & 0xff,
+                        passiveAdvertisedAddress[2] & 0xff, passiveAdvertisedAddress[3] & 0xff,
                         part1, part2), ctx, "PASV", args);
                 break;
             } catch (IOException e1) {

@@ -3,8 +3,6 @@ package com.alexkasko.netty.ftp;
 import org.apache.commons.io.IOUtils;
 import org.apache.commons.net.ftp.FTP;
 import org.apache.commons.net.ftp.FTPClient;
-import org.apache.commons.net.ftp.FTPFile;
-import org.apache.commons.net.ftp.FTPReply;
 import org.jboss.netty.bootstrap.ServerBootstrap;
 import org.jboss.netty.channel.ChannelFactory;
 import org.jboss.netty.channel.ChannelPipeline;
@@ -13,7 +11,6 @@ import org.jboss.netty.channel.Channels;
 import org.jboss.netty.channel.socket.nio.NioServerSocketChannelFactory;
 import org.jboss.netty.handler.execution.ExecutionHandler;
 import org.jboss.netty.handler.execution.OrderedMemoryAwareThreadPoolExecutor;
-import org.junit.Assert;
 import org.junit.Test;
 
 import java.io.ByteArrayInputStream;
@@ -78,7 +75,7 @@ public class FtpServerTest {
         public ChannelPipeline getPipeline() throws Exception {
             ChannelPipeline pipe = Channels.pipeline();
             pipe.addLast("decoder", new CrlfStringDecoder());
-            pipe.addLast("executor", new ExecutionHandler(new OrderedMemoryAwareThreadPoolExecutor(1, 1048576, 1048576)));
+            pipe.addLast("executor", new ExecutionHandler(new OrderedMemoryAwareThreadPoolExecutor(1, 0, 0)));
             pipe.addLast("handler", new FtpServerHandler(new ConsoleReceiver()));
             return pipe;
         }
