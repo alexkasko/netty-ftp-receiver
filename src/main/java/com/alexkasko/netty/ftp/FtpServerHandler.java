@@ -137,7 +137,7 @@ public class FtpServerHandler extends SimpleChannelUpstreamHandler {
     @Override
     public void exceptionCaught(ChannelHandlerContext ctx, ExceptionEvent e) throws Exception {
         logger.error("Exception caught in FtpServerHandler", e.getCause());
-        send("500 Unspecified error", ctx, e.getCause().getMessage(), "");
+        send("500 Unspecified error", ctx, String.valueOf(e.getCause().getMessage()), "");
     }
 
     /**
