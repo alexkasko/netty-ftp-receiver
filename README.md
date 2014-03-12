@@ -13,7 +13,7 @@ Library is available in [Maven cental](http://repo1.maven.org/maven2/com/alexkas
     <dependency>
         <groupId>com.alexkasko.netty</groupId>
         <artifactId>netty-ftp-receiver</artifactId>
-        <version>1.2.2</version>
+        <version>1.2.3</version>
     </dependency>
 
 See usage example in [tests](https://github.com/alexkasko/netty-ftp-receiver/blob/master/src/test/java/com/alexkasko/netty/ftp/FtpServerTest.java).
@@ -27,6 +27,10 @@ This project is released under the [Apache License 2.0](http://www.apache.org/li
 
 Changelog
 ---------
+
+**1.2.3** (2014-03-12)
+
+ * prevent error reply sending to closed channel
 
 **1.2.2** (2014-02-19)
 
